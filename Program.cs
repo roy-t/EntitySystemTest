@@ -24,19 +24,16 @@ namespace EntitySystemTest
 
 #if RELEASE
             BenchmarkRunner.Run<Benchmark>();
+
 #else
             var benchmark = new Benchmark();
             benchmark.EarlyPipelineBenchmark();
             //benchmark.LatePipelineBenchmark();
 #endif
 
-
-
-            Benchmark.Processed.ForEach(s => Console.WriteLine(s));
+            Console.WriteLine($"Counted: {MonoSystem.counter}, {DuoSystem.counter}");
             Console.ReadLine();
         }
-
-
     }
 
     public interface ISystem { }
@@ -84,16 +81,14 @@ namespace EntitySystemTest
 
     public class MonoSystem : ISystem<ComponentA>
     {
-        public void Process(ComponentA component)
-        {
-            Benchmark.Processed.Add($"System {nameof(MonoSystem)} is processing a component of type {nameof(ComponentA)} with name {component.Name}");
-        }
+        public static long counter { get; set; }
+
+        public void Process(ComponentA component) => counter++;
     }
     public class DuoSystem : ISystem<ComponentA, ComponentB>
     {
-        public void Process(ComponentA component, ComponentB component2)
-        {
-            Benchmark.Processed.Add($"System {nameof(DuoSystem)} is processing components of type {{{nameof(ComponentA)}, {nameof(ComponentB)}}} with entity {component.Entity}");
-        }
+        public static long counter { get; set; }
+
+        public void Process(ComponentA component, ComponentB component2) => counter++;
     }
 }

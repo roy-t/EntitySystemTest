@@ -6,9 +6,27 @@ namespace EntitySystemTest
     public class Benchmark
     {
         public static List<string> Processed = new List<string>(10000);
+        private EarlyPipeline earlyPipeline;
+        private LatePipeline latePipeline;
+
+        [GlobalSetup]
+        public void Setup()
+        {
+            this.earlyPipeline = CreateEarlyPipeline();
+            this.latePipeline = CreateLatePipeline();
+        }
+
+        [Benchmark(Baseline = true)]
+        public void LatePipelineBenchmark()
+           => this.latePipeline.Execute();
+
 
         [Benchmark]
         public void EarlyPipelineBenchmark()
+            => this.earlyPipeline.Execute();
+
+
+        private EarlyPipeline CreateEarlyPipeline()
         {
             var pipeline = new EarlyPipeline();
             var dictA = new Dictionary<int, ComponentA>
@@ -35,15 +53,11 @@ namespace EntitySystemTest
             var systemB = new DuoSystem();
             pipeline.AddSystem(systemB);
 
-            for (var i = 0; i < 10000; i++)
-            {
-                pipeline.Execute();
-            }
+            return pipeline;
         }
 
 
-        [Benchmark(Baseline = true)]
-        public void LatePipelineBenchmark()
+        public LatePipeline CreateLatePipeline()
         {
             var pipeline = new LatePipeline();
             var dictA = new Dictionary<int, ComponentA>
@@ -70,10 +84,10 @@ namespace EntitySystemTest
             var systemB = new DuoSystem();
             pipeline.AddSystem(systemB);
 
-            for (var i = 0; i < 10000; i++)
-            {
-                pipeline.Execute();
-            }
+            return pipeline;
         }
+
+
+
     }
 }

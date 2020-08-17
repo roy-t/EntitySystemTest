@@ -33,9 +33,6 @@ namespace EntitySystemTest
                     }
 
                     var processor = type.GetMethod("Process");
-
-                    //var delegateType = Expression.GetActionType(arguments);
-                    //var processDelegate = processor.CreateDelegate(delegateType, system);
                     this.SystemBindings.Add(new SystemBinding(processor, system, parameterLookups));
                 }
             }
@@ -52,8 +49,6 @@ namespace EntitySystemTest
             }
         }
     }
-
-
 
     public sealed class SystemBinding
     {
