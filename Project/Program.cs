@@ -1,7 +1,8 @@
-﻿using System;
-#if RELEASE
+﻿#if RELEASE
 using BenchmarkDotNet.Running;
 #endif
+using System;
+
 namespace EntitySystemTest
 {
     /*
@@ -19,19 +20,20 @@ namespace EntitySystemTest
         {
             Console.WriteLine("Hello World!");
 
-            var pipeline = new EarlyPipeline();
+
+            var pipeline = PipelineBuilder.ExampleSetup();
 
 
-#if RELEASE
-            BenchmarkRunner.Run<Benchmark>();
+            //#if RELEASE
+            //            BenchmarkRunner.Run<Benchmark>();
 
-#else
-            var benchmark = new Benchmark();
-            benchmark.EarlyPipelineBenchmark();
-            //benchmark.LatePipelineBenchmark();
-#endif
+            //#else
+            //            var benchmark = new Benchmark();
+            //            benchmark.EarlyPipelineBenchmark();
+            //            benchmark.LatePipelineBenchmark();            
+            //#endif
 
-            Console.WriteLine($"Counted: {MonoSystem.counter}, {DuoSystem.counter}");
+            Console.WriteLine($"Counted: {MonoSystem.Counter}, {DuoSystem.Counter}");
             Console.ReadLine();
         }
     }
@@ -64,7 +66,7 @@ namespace EntitySystemTest
             this.Entity = entity;
             this.Name = name;
         }
-        public int Entity { get; }
+        public int Entity { get; set; }
         public string Name { get; }
     }
 
@@ -79,16 +81,23 @@ namespace EntitySystemTest
         public string Name { get; }
     }
 
+    public class SoloSystem : ISystem
+    {
+        public static long Counter { get; set; }
+
+        public void Process() => Counter++;
+    }
+
     public class MonoSystem : ISystem<ComponentA>
     {
-        public static long counter { get; set; }
+        public static long Counter { get; set; }
 
-        public void Process(ComponentA component) => counter++;
+        public void Process(ComponentA component) => Counter++;
     }
     public class DuoSystem : ISystem<ComponentA, ComponentB>
     {
-        public static long counter { get; set; }
+        public static long Counter { get; set; }
 
-        public void Process(ComponentA component, ComponentB component2) => counter++;
+        public void Process(ComponentA component, ComponentB component2) => Counter++;
     }
 }
