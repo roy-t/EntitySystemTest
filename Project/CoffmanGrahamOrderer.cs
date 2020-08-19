@@ -9,25 +9,14 @@ namespace EntitySystemTest
     /// </summary>
     public static class CoffmanGrahamOrderer
     {
-        public static List<SystemSpec> Order(List<SystemSpec> systemSpecs)
+        public static List<SystemSpec> Order(IReadOnlyList<SystemSpec> systemSpecs)
         {
-            var orderedSystemSpecs = new List<SystemSpec>();
+            var orderedSystemSpecs = systemSpecs.Where(systemSpec => systemSpec.RequiredResources.Count == 0).ToList();
+            var unorderedSystemSpecs = systemSpecs.Where(systemSpec => systemSpec.RequiredResources.Count > 0).ToList();
 
-            // First insert all items that do not have requirements
-            for (var i = systemSpecs.Count - 1; i >= 0; i--)
+            while (unorderedSystemSpecs.Count > 0)
             {
-                var systemSpec = systemSpecs[i];
-                if (systemSpec.RequiredResources.Count == 0)
-                {
-                    orderedSystemSpecs.Add(systemSpec);
-                    systemSpecs.RemoveAt(i);
-                }
-            }
-
-            // Keep inserting items for which all requirments have been fulfilled until the list is empty
-            while (systemSpecs.Count > 0)
-            {
-                var candidate = GetNextCandidate(systemSpecs, orderedSystemSpecs);
+                var candidate = GetNextCandidate(unorderedSystemSpecs, orderedSystemSpecs);
 
                 if (candidate == null)
                 {
@@ -35,7 +24,7 @@ namespace EntitySystemTest
                 }
 
                 orderedSystemSpecs.Add(candidate);
-                systemSpecs.Remove(candidate);
+                unorderedSystemSpecs.Remove(candidate);
             }
 
             return orderedSystemSpecs;
@@ -43,31 +32,23 @@ namespace EntitySystemTest
 
         public static List<Stage> DivideIntoStages(List<SystemSpec> orderedSystemSpecs)
         {
+            var stages = CreateStages(orderedSystemSpecs);
+            SplitStagesWithMixedParallelism(stages);
+
+            return stages;
+        }
+
+        private static List<Stage> CreateStages(List<SystemSpec> orderedSystemSpecs)
+        {
             var stages = new List<Stage>();
             var produced = new List<ResourceState>();
-
             var currentStage = new List<SystemSpec>();
-            var allowParallelism = true;
 
             foreach (var systemSpec in orderedSystemSpecs)
             {
                 if (AllRequirementsHaveBeenProduced(systemSpec, produced))
                 {
-                    if (currentStage.Count == 0)
-                    {
-                        currentStage.Add(systemSpec);
-                        allowParallelism = systemSpec.AllowParallelism;
-                    }
-                    else if (currentStage.Count > 0 && systemSpec.AllowParallelism && allowParallelism)
-                    {
-                        currentStage.Add(systemSpec);
-                    }
-                    else
-                    {
-                        stages.Add(new Stage(currentStage));
-                        currentStage = new List<SystemSpec>() { systemSpec };
-                        allowParallelism = systemSpec.AllowParallelism;
-                    }
+                    currentStage.Add(systemSpec);
                 }
                 else
                 {
@@ -76,11 +57,10 @@ namespace EntitySystemTest
                     {
                         stages.Add(new Stage(currentStage));
                         currentStage = new List<SystemSpec>() { systemSpec };
-                        allowParallelism = systemSpec.AllowParallelism;
                     }
                     else
                     {
-                        throw new Exception("Algorithm error");
+                        throw new Exception($"Algorithm error, did you forget to first call {nameof(CoffmanGrahamOrderer)}.{nameof(Order)}?");
                     }
                 }
             }
@@ -90,51 +70,50 @@ namespace EntitySystemTest
                 stages.Add(new Stage(currentStage));
             }
 
-            stages.TrimExcess();
             return stages;
         }
 
-        private static bool AllRequirementsHaveBeenProduced(SystemSpec systemSpec, List<ResourceState> produced)
+        private static void SplitStagesWithMixedParallelism(List<Stage> stages)
         {
-            foreach (var requirement in systemSpec.RequiredResources)
+            for (var i = 0; i < stages.Count; i++)
             {
-                if (!produced.Contains(requirement))
+                var stage = stages[i];
+                if (stage.SystemSpecs.All(systemSpec => systemSpec.AllowParallelism) || stage.SystemSpecs.All(systemSpec => !systemSpec.AllowParallelism))
                 {
-                    return false;
+                    continue;
+                }
+                else
+                {
+                    var sequentialStage = new Stage(stage.SystemSpecs.Where(systemSpec => !systemSpec.AllowParallelism).ToList());
+                    stages[i] = sequentialStage;
+
+                    var parallelStage = new Stage(stage.SystemSpecs.Where(systemSpec => systemSpec.AllowParallelism).ToList());
+                    stages.Insert(i, parallelStage); // inserts before the sequential stage                    
+
+                    i++;
                 }
             }
-
-            return true;
         }
+
+        private static bool AllRequirementsHaveBeenProduced(SystemSpec systemSpec, List<ResourceState> produced)
+            => systemSpec.RequiredResources.All(resource => produced.Contains(resource));
 
         private static List<ResourceState> GetProducedResource(List<SystemSpec> systemSpecs)
-        {
-            var produced = new List<ResourceState>();
-            foreach (var systemSpec in systemSpecs)
-            {
-                produced.AddRange(systemSpec.ProducedResources);
-            }
+            => systemSpecs.SelectMany(systemSpec => systemSpec.ProducedResources).ToList();
 
-            return produced;
-        }
-
-        private static SystemSpec GetNextCandidate(List<SystemSpec> systemSpecs, List<SystemSpec> orderedSystemSpecs)
+        private static SystemSpec GetNextCandidate(List<SystemSpec> unorderedSystemSpecs, List<SystemSpec> orderedSystemSpecs)
         {
             var maxDistance = int.MinValue;
-            var preferedParallelness = orderedSystemSpecs.LastOrDefault()?.AllowParallelism ?? true;
             SystemSpec candidate = null;
 
-
-            foreach (var systemSpec in systemSpecs)
+            foreach (var systemSpec in unorderedSystemSpecs)
             {
                 // The best candidate has the largest distance from the items that produce their requirements
                 // so that it does not have to wait long for what it needs.
-                // As a tie breaker we use the if the parallelism is the same as the last added item in the hope
-                // to get larger consecutive items that can be run in parallel.
                 var minDistance = int.MaxValue;
                 foreach (var requirement in systemSpec.RequiredResources)
                 {
-                    var distance = DistanceTo(requirement, orderedSystemSpecs);
+                    var distance = DistanceToProducer(requirement, orderedSystemSpecs);
                     if (distance == null)
                     {
                         goto NextCandidate;
@@ -143,8 +122,7 @@ namespace EntitySystemTest
                     minDistance = Math.Min(distance.Value, minDistance);
                 }
 
-                if (minDistance > maxDistance ||
-                    (minDistance >= maxDistance && systemSpec.AllowParallelism == preferedParallelness))
+                if (minDistance > maxDistance)
                 {
                     maxDistance = minDistance;
                     candidate = systemSpec;
@@ -157,7 +135,7 @@ namespace EntitySystemTest
         }
 
 
-        private static int? DistanceTo(ResourceState requirement, List<SystemSpec> orderedSystemSpecs)
+        private static int? DistanceToProducer(ResourceState requirement, List<SystemSpec> orderedSystemSpecs)
         {
             var producer = orderedSystemSpecs.Where(systemSpec => systemSpec.ProducedResources.Contains(requirement)).FirstOrDefault();
 
