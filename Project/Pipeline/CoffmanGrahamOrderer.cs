@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace EntitySystemTest
+namespace EntitySystemTest.Pipeline
 {
     /// <summary>
     /// https://en.wikipedia.org/wiki/Coffman%E2%80%93Graham_algorithm
@@ -30,7 +30,7 @@ namespace EntitySystemTest
             return orderedSystemSpecs;
         }
 
-        public static List<Stage> DivideIntoStages(List<SystemSpec> orderedSystemSpecs)
+        public static List<List<SystemSpec>> DivideIntoStages(List<SystemSpec> orderedSystemSpecs)
         {
             var stages = CreateStages(orderedSystemSpecs);
             SplitStagesWithMixedParallelism(stages);
@@ -38,10 +38,11 @@ namespace EntitySystemTest
             return stages;
         }
 
-        private static List<Stage> CreateStages(List<SystemSpec> orderedSystemSpecs)
+        private static List<List<SystemSpec>> CreateStages(List<SystemSpec> orderedSystemSpecs)
         {
-            var stages = new List<Stage>();
+            var stages = new List<List<SystemSpec>>();
             var produced = new List<ResourceState>();
+
             var currentStage = new List<SystemSpec>();
 
             foreach (var systemSpec in orderedSystemSpecs)
@@ -55,7 +56,7 @@ namespace EntitySystemTest
                     produced.AddRange(GetProducedResource(currentStage));
                     if (AllRequirementsHaveBeenProduced(systemSpec, produced))
                     {
-                        stages.Add(new Stage(currentStage));
+                        stages.Add(currentStage);
                         currentStage = new List<SystemSpec>() { systemSpec };
                     }
                     else
@@ -67,28 +68,28 @@ namespace EntitySystemTest
 
             if (currentStage.Count > 0)
             {
-                stages.Add(new Stage(currentStage));
+                stages.Add(currentStage);
             }
 
             return stages;
         }
 
-        private static void SplitStagesWithMixedParallelism(List<Stage> stages)
+        private static void SplitStagesWithMixedParallelism(List<List<SystemSpec>> stages)
         {
             for (var i = 0; i < stages.Count; i++)
             {
                 var stage = stages[i];
-                if (stage.SystemSpecs.All(systemSpec => systemSpec.AllowParallelism) || stage.SystemSpecs.All(systemSpec => !systemSpec.AllowParallelism))
+                if (stage.All(systemSpec => systemSpec.AllowParallelism) || stage.All(systemSpec => !systemSpec.AllowParallelism))
                 {
                     continue;
                 }
                 else
                 {
-                    var sequentialStage = new Stage(stage.SystemSpecs.Where(systemSpec => !systemSpec.AllowParallelism).ToList());
+                    var sequentialStage = new List<SystemSpec>(stage.Where(systemSpec => !systemSpec.AllowParallelism).ToList());
                     stages[i] = sequentialStage;
 
-                    var parallelStage = new Stage(stage.SystemSpecs.Where(systemSpec => systemSpec.AllowParallelism).ToList());
-                    stages.Insert(i, parallelStage); // inserts before the sequential stage                    
+                    var parallelStage = new List<SystemSpec>(stage.Where(systemSpec => systemSpec.AllowParallelism).ToList());
+                    stages.Insert(i, parallelStage); // inserts before the sequential stage
 
                     i++;
                 }

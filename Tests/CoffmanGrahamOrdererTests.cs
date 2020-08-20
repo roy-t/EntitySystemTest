@@ -1,8 +1,7 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
-using EntitySystemTest;
+using EntitySystemTest.Mocks;
+using EntitySystemTest.Pipeline;
 using NUnit.Framework;
 
 namespace Tests
@@ -53,13 +52,13 @@ namespace Tests
             var stages = CoffmanGrahamOrderer.DivideIntoStages(ordered);
             Assert.That(stages.Count, Is.EqualTo(2));
 
-            Assert.That(stages[0].SystemSpecs.Count, Is.EqualTo(1));
-            Assert.That(stages[0].SystemSpecs[0], Is.EqualTo(specA));
+            Assert.That(stages[0].Count, Is.EqualTo(1));
+            Assert.That(stages[0][0], Is.EqualTo(specA));
 
-            Assert.That(stages[1].SystemSpecs.Count, Is.EqualTo(3));
+            Assert.That(stages[1].Count, Is.EqualTo(3));
         }
 
-        private static SystemSpec Spec() => new SystemSpec(typeof(SoloSystem));
+        private static SystemSpec Spec() => SystemSpec.Construct<SoloSystem>();
 
 
         [Test]
@@ -95,35 +94,19 @@ namespace Tests
             var stages = CoffmanGrahamOrderer.DivideIntoStages(ordered);
             Assert.That(stages.Count, Is.EqualTo(4));
 
-            Assert.That(stages[0].SystemSpecs.Count, Is.EqualTo(1));
-            Assert.That(stages[0].SystemSpecs[0], Is.EqualTo(specA));
+            Assert.That(stages[0].Count, Is.EqualTo(1));
+            Assert.That(stages[0][0], Is.EqualTo(specA));
 
-            Assert.That(stages[1].SystemSpecs.Count, Is.EqualTo(2));
-            Assert.That(stages[1].SystemSpecs.All(s => s.AllowParallelism), Is.EqualTo(true));
+            Assert.That(stages[1].Count, Is.EqualTo(2));
+            Assert.That(stages[1].All(s => s.AllowParallelism), Is.EqualTo(true));
 
-            Assert.That(stages[2].SystemSpecs.Count, Is.EqualTo(2));
-            Assert.That(stages[2].SystemSpecs.All(s => s.AllowParallelism), Is.EqualTo(false));
+            Assert.That(stages[2].Count, Is.EqualTo(2));
+            Assert.That(stages[2].All(s => s.AllowParallelism), Is.EqualTo(false));
 
-            Assert.That(stages[3].SystemSpecs.Count, Is.EqualTo(1));
-            Assert.That(stages[3].SystemSpecs[0], Is.EqualTo(specF));
+            Assert.That(stages[3].Count, Is.EqualTo(1));
+            Assert.That(stages[3][0], Is.EqualTo(specF));
         }
     }
 
 }
-internal static class ListExtensions
-{
-    [ThreadStatic] public static Random Random = new Random(unchecked((Environment.TickCount * 31) + Thread.CurrentThread.ManagedThreadId));
 
-    public static void Shuffle<T>(this IList<T> list)
-    {
-        var n = list.Count;
-        while (n > 1)
-        {
-            n--;
-            var k = Random.Next(n + 1);
-            var value = list[k];
-            list[k] = list[n];
-            list[n] = value;
-        }
-    }
-}
