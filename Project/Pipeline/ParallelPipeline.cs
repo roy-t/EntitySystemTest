@@ -5,36 +5,24 @@ using System.Threading;
 
 namespace EntitySystemTest.Pipeline
 {
-    public sealed class ParallelPipeline
+    public sealed class ParallelPipeline : IDisposable
     {
         private readonly int MaxConcurrency;
         private readonly Thread[] Threads;
         private readonly CountdownEvent[] StageCountDownEvents;
-        private readonly CountdownEvent[] FrameCountDownEvents;
-
-        private int currentFrame;
-        private int currentStage;
+        private readonly CountdownEvent FrameStartCountDownEvent;
 
         public ParallelPipeline(IReadOnlyList<PipelineStage> pipelineStages)
         {
             this.PipelineStages = pipelineStages;
-            for (var i = 0; i < this.PipelineStages.Count; i++)
-            {
-                var stage = this.PipelineStages[i];
-                this.MaxConcurrency = Math.Max(stage.Systems.Count, this.MaxConcurrency);
-            }
+            this.MaxConcurrency = this.PipelineStages.Max(stage => stage.Systems.Count);
 
             this.StageCountDownEvents = new CountdownEvent[this.PipelineStages.Count];
             for (var i = 0; i < this.PipelineStages.Count; i++)
             {
                 this.StageCountDownEvents[i] = new CountdownEvent(this.MaxConcurrency);
             }
-
-            this.FrameCountDownEvents = new CountdownEvent[]
-            {
-                new CountdownEvent(this.MaxConcurrency),
-                new CountdownEvent(this.MaxConcurrency)
-            };
+            this.FrameStartCountDownEvent = new CountdownEvent(1);
 
             this.IsRunning = true;
 
@@ -49,74 +37,87 @@ namespace EntitySystemTest.Pipeline
         public IReadOnlyList<PipelineStage> PipelineStages { get; }
 
         public bool IsRunning { get; private set; }
+        public int ActiveThreads => this.Threads.Sum(x => x.IsAlive ? 1 : 0);
 
-        public void Stop()
-        {
-            // What if, NextFrame was never called?
-
-            this.WaitForEndOfFrame();
-            this.IsRunning = false;
-            this.NextFrame();
-
-            for (var i = 0; i < this.MaxConcurrency; i++)
-            {
-                this.Threads[i].Join();
-            }
-        }
 
         public void NextFrame()
         {
-            // TODO: what if someone calls NextFrame at random moments?
-            this.NextFrameCountDownEvent.Reset();
             for (var i = this.PipelineStages.Count - 1; i >= 0; i--)
             {
                 this.StageCountDownEvents[i].Reset();
             }
 
-            this.CurrentFrameCountDownEvent.Signal(this.MaxConcurrency);
+            this.FrameStartCountDownEvent.Signal();
         }
 
         public void WaitForEndOfFrame()
         {
             if (this.IsRunning)
             {
-                this.StageCountDownEvents[this.PipelineStages.Count - 1].Wait();
+                this.StageCountDownEvents[^1].Wait();
             }
         }
 
-        public int ActiveThreads => this.Threads.Sum(x => x.IsAlive ? 1 : 0);
+        public void Stop()
+        {
+            if (this.IsRunning)
+            {
+                this.WaitForEndOfFrame();
+                this.IsRunning = false; // What if someone else already started the next frame? Should I sync all methods?
+                this.NextFrame();
+
+                for (var i = 0; i < this.MaxConcurrency; i++)
+                {
+                    this.Threads[i].Join();
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            if (this.IsRunning)
+            {
+                throw new InvalidOperationException("Cannot dispose while still running");
+            }
+
+            for (var i = 0; i < this.StageCountDownEvents.Length; i++)
+            {
+                this.StageCountDownEvents[i]?.Dispose();
+            }
+            this.FrameStartCountDownEvent?.Dispose();
+        }
 
         private void ThreadStart(object threadIndexObj)
         {
             var threadIndex = (int)threadIndexObj;
             while (true)
             {
-                var currentFrame = this.currentFrame;
-                this.CurrentFrameCountDownEvent.Wait();
+                this.FrameStartCountDownEvent.Wait();
+                if (threadIndex == 0)
+                {
+                    this.FrameStartCountDownEvent.Reset();
+                }
 
                 if (!this.IsRunning)
                 {
                     break;
                 }
 
-                for (this.currentStage = 0; this.currentStage < this.PipelineStages.Count; this.currentStage++)
+                for (var currentStage = 0; currentStage < this.PipelineStages.Count; currentStage++)
                 {
-                    var stage = this.PipelineStages[this.currentStage];
+                    var stage = this.PipelineStages[currentStage];
                     if (threadIndex < stage.Systems.Count)
                     {
                         var system = stage.Systems[threadIndex];
                         system.Process();
                     }
 
-                    this.StageCountDownEvents[this.currentStage].Signal();
-                    this.StageCountDownEvents[this.currentStage].Wait();
+                    this.StageCountDownEvents[currentStage].Signal();
+                    this.StageCountDownEvents[currentStage].Wait();
                 }
 
-                this.currentFrame = currentFrame + 1; // All threads will write the same value to this field
+                while (this.FrameStartCountDownEvent.IsSet) { /* Wait for thread 0 to reset the CountDownEvent */ };
             }
         }
-
-        private CountdownEvent CurrentFrameCountDownEvent => this.FrameCountDownEvents[this.currentFrame % 2 == 0 ? 0 : 1];
-        private CountdownEvent NextFrameCountDownEvent => this.FrameCountDownEvents[this.currentFrame % 2 == 0 ? 1 : 0];
     }
 }
