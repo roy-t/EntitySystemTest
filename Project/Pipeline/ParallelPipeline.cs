@@ -2,29 +2,30 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using EntitySystemTest.Threading;
 
 namespace EntitySystemTest.Pipeline
 {
-    public sealed class ParallelPipeline : IDisposable
+    public sealed class ParallelPipeline
     {
         private readonly int MaxConcurrency;
+        private readonly int ExternalThreadIndex;
         private readonly Thread[] Threads;
-        private readonly CountdownEvent[] StageCountDownEvents;
-        private readonly CountdownEvent FrameStartCountDownEvent;
+        private readonly ThreadingPrimitive StartFramePrimitive;
+        private readonly ThreadingPrimitive EndFramePrimitive;
+        private readonly ThreadingPrimitive StagePrimitive;
+
+        private PipelineState pipelineState;
 
         public ParallelPipeline(IReadOnlyList<PipelineStage> pipelineStages)
         {
             this.PipelineStages = pipelineStages;
             this.MaxConcurrency = this.PipelineStages.Max(stage => stage.Systems.Count);
+            this.ExternalThreadIndex = this.MaxConcurrency;
 
-            this.StageCountDownEvents = new CountdownEvent[this.PipelineStages.Count];
-            for (var i = 0; i < this.PipelineStages.Count; i++)
-            {
-                this.StageCountDownEvents[i] = new CountdownEvent(this.MaxConcurrency);
-            }
-            this.FrameStartCountDownEvent = new CountdownEvent(1);
-
-            this.IsRunning = true;
+            this.StartFramePrimitive = new ThreadingPrimitive(this.MaxConcurrency + 1);
+            this.EndFramePrimitive = new ThreadingPrimitive(this.MaxConcurrency + 1);
+            this.StagePrimitive = new ThreadingPrimitive(this.MaxConcurrency);
 
             this.Threads = new Thread[this.MaxConcurrency];
             for (var i = 0; i < this.MaxConcurrency; i++)
@@ -32,76 +33,66 @@ namespace EntitySystemTest.Pipeline
                 this.Threads[i] = new Thread(threadIndex => this.ThreadStart(threadIndex));
                 this.Threads[i].Start(i);
             }
+
+            this.pipelineState = PipelineState.ReadyForNextRun;
         }
 
         public IReadOnlyList<PipelineStage> PipelineStages { get; }
 
-        public bool IsRunning { get; private set; }
         public int ActiveThreads => this.Threads.Sum(x => x.IsAlive ? 1 : 0);
 
 
-        public void NextFrame()
+        public void Run()
         {
-            for (var i = this.PipelineStages.Count - 1; i >= 0; i--)
+            if (this.pipelineState == PipelineState.ReadyForNextRun)
             {
-                this.StageCountDownEvents[i].Reset();
+                this.StartFramePrimitive.DecrementAndWait(this.ExternalThreadIndex);
+                this.pipelineState = PipelineState.Running;
             }
-
-            this.FrameStartCountDownEvent.Signal();
+            else
+            {
+                throw new InvalidOperationException($"Cannot call {nameof(Run)} while the {nameof(ParallelPipeline)} is in the {this.pipelineState} state");
+            }
         }
 
-        public void WaitForEndOfFrame()
+        public void Wait()
         {
-            if (this.IsRunning)
+            if (this.pipelineState == PipelineState.Running)
             {
-                this.StageCountDownEvents[^1].Wait();
+                this.EndFramePrimitive.DecrementAndWait(this.ExternalThreadIndex);
+                this.pipelineState = PipelineState.ReadyForNextRun;
+            }
+            else
+            {
+                throw new InvalidOperationException($"Cannot call {nameof(Wait)} while the {nameof(ParallelPipeline)} is in the {this.pipelineState} state");
             }
         }
 
         public void Stop()
         {
-            if (this.IsRunning)
+            if (this.pipelineState == PipelineState.Running)
             {
-                this.WaitForEndOfFrame();
-                this.IsRunning = false; // What if someone else already started the next frame? Should I sync all methods?
-                this.NextFrame();
+                this.pipelineState = PipelineState.Stopped;
+                this.EndFramePrimitive.DecrementAndWait(this.ExternalThreadIndex);
 
-                for (var i = 0; i < this.MaxConcurrency; i++)
+                for (var i = 0; i < this.Threads.Length; i++)
                 {
                     this.Threads[i].Join();
                 }
             }
-        }
-
-        public void Dispose()
-        {
-            if (this.IsRunning)
+            else
             {
-                throw new InvalidOperationException("Cannot dispose while still running");
+                throw new InvalidOperationException($"Cannot call {nameof(Stop)} while the {nameof(ParallelPipeline)} is in the {this.pipelineState} state");
             }
-
-            for (var i = 0; i < this.StageCountDownEvents.Length; i++)
-            {
-                this.StageCountDownEvents[i]?.Dispose();
-            }
-            this.FrameStartCountDownEvent?.Dispose();
         }
 
         private void ThreadStart(object threadIndexObj)
         {
             var threadIndex = (int)threadIndexObj;
-            while (true)
-            {
-                this.FrameStartCountDownEvent.Wait();
-                if (threadIndex == 0)
-                {
-                    this.FrameStartCountDownEvent.Reset();
-                }
 
-                if (!this.IsRunning)
-                {
-                    break;
-                }
+            while (this.pipelineState != PipelineState.Stopped)
+            {
+                this.StartFramePrimitive.DecrementAndWait(threadIndex);
 
                 for (var currentStage = 0; currentStage < this.PipelineStages.Count; currentStage++)
                 {
@@ -112,11 +103,10 @@ namespace EntitySystemTest.Pipeline
                         system.Process();
                     }
 
-                    this.StageCountDownEvents[currentStage].Signal();
-                    this.StageCountDownEvents[currentStage].Wait();
+                    this.StagePrimitive.DecrementAndWait(threadIndex);
                 }
 
-                while (this.FrameStartCountDownEvent.IsSet) { /* Wait for thread 0 to reset the CountDownEvent */ };
+                this.EndFramePrimitive.DecrementAndWait(threadIndex);
             }
         }
     }

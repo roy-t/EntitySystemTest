@@ -23,12 +23,12 @@ namespace Tests
 
             var pipeline = new ParallelPipeline(pipelineStages);
 
-            pipeline.NextFrame();
-            pipeline.WaitForEndOfFrame();
+            pipeline.Run();
+            pipeline.Wait();
             Assert.That(pipeline.ActiveThreads, Is.EqualTo(1));
 
-            pipeline.NextFrame();
-            pipeline.WaitForEndOfFrame();
+            pipeline.Run();
+            pipeline.Wait();
             Assert.That(pipeline.ActiveThreads, Is.EqualTo(1));
 
             pipeline.Stop();
