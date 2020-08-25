@@ -23,8 +23,9 @@ namespace EntitySystemTest.Pipeline
             this.MaxConcurrency = this.PipelineStages.Max(stage => stage.Systems.Count);
             this.ExternalThreadIndex = this.MaxConcurrency;
 
-            this.StartFramePrimitive = new ThreadingPrimitive(this.MaxConcurrency + 1);
-            this.EndFramePrimitive = new ThreadingPrimitive(this.MaxConcurrency + 1);
+            this.StartFramePrimitive = new ThreadingPrimitive(this.MaxConcurrency + 1, 10000);
+            this.EndFramePrimitive = new ThreadingPrimitive(this.MaxConcurrency + 1, 10000);
+
             this.StagePrimitive = new ThreadingPrimitive(this.MaxConcurrency);
 
             this.Threads = new Thread[this.MaxConcurrency];
