@@ -9,7 +9,7 @@ namespace Tests
 {
     public class ThreadingPrimitiveTests
     {
-        private static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(1000);
+        private static readonly TimeSpan Timeout = TimeSpan.FromMilliseconds(250);
 
         [TestCase(0)]
         [TestCase(1)]
@@ -44,24 +44,35 @@ namespace Tests
                 () => primitive.DecrementAndWait(threadIds[9])), Throws.Nothing);
         }
 
+        [TestCase(0, 1)]
+        [TestCase(1, 0)]
+        public void ShouldLockAfterAllThreadsDecrementAndOneThreadDecrementsASecondTime(int aThreadIndex, int bThreadIndex)
+        {
+            var primitive = new ThreadingPrimitive(2);
+            Assert.That(async () => await RunWithTimeout(
+                () =>
+                {
+                    primitive.DecrementAndWait(aThreadIndex);
+                    primitive.DecrementAndWait(aThreadIndex);
+                },
+                () => primitive.DecrementAndWait(bThreadIndex)), Throws.TypeOf<TimeoutException>());
+        }
+
         private static async Task RunWithTimeout(params Action[] actions)
         {
             var cancellationTokenSource = new CancellationTokenSource();
 
-            var delayTask = Task.Delay(Timeout, cancellationTokenSource.Token);
             var tasks = actions
                 .Select(a => Task.Run(a, cancellationTokenSource.Token))
-                .Append(delayTask)
                 .ToList();
 
-            if (delayTask == await Task.WhenAny(tasks))
+            var delayTask = Task.Delay(Timeout, cancellationTokenSource.Token);
+            var completed = await Task.WhenAny(Task.WhenAll(tasks), delayTask);
+
+            cancellationTokenSource.Cancel();
+            if (completed == delayTask)
             {
-                cancellationTokenSource.Cancel();
                 throw new TimeoutException();
-            }
-            else
-            {
-                cancellationTokenSource.Cancel();
             }
         }
     }
