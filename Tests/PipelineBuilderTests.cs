@@ -9,7 +9,7 @@ namespace Tests
     public class PipelineBuilderTests
     {
         [Test]
-        public void Integration()
+        public void MixedDependentSystems()
         {
             var builder = new PipelineBuilder();
 

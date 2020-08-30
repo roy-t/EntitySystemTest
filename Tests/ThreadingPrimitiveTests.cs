@@ -13,14 +13,14 @@ namespace Tests
 
         [TestCase(0)]
         [TestCase(1)]
-        public void ShouldLock(int threadIndex)
+        public void Lock(int threadIndex)
         {
             var primitive = new ThreadingPrimitive(2);
             Assert.That(async () => await RunWithTimeout(() => primitive.DecrementAndWait(threadIndex)), Throws.TypeOf<TimeoutException>());
         }
 
         [Test]
-        public void ShouldContinue()
+        public void Continue()
         {
             var primitive = new ThreadingPrimitive(1);
             Assert.That(async () => await RunWithTimeout(() => primitive.DecrementAndWait(0)), Throws.Nothing);
@@ -46,7 +46,7 @@ namespace Tests
 
         [TestCase(0, 1)]
         [TestCase(1, 0)]
-        public void ShouldLockAfterAllThreadsDecrementAndOneThreadDecrementsASecondTime(int aThreadIndex, int bThreadIndex)
+        public void LockAfterAllThreadsDecrementAndOneThreadDecrementsASecondTime(int aThreadIndex, int bThreadIndex)
         {
             var primitive = new ThreadingPrimitive(2);
             Assert.That(async () => await RunWithTimeout(

@@ -76,10 +76,14 @@ namespace EntitySystemTest.Pipeline
                 this.pipelineState = PipelineState.Stopped;
                 this.EndFramePrimitive.DecrementAndWait(this.ExternalThreadIndex);
 
-                for (var i = 0; i < this.Threads.Length; i++)
-                {
-                    this.Threads[i].Join();
-                }
+                this.JoinWorkers();
+            }
+            else if (this.pipelineState == PipelineState.ReadyForNextRun)
+            {
+                this.pipelineState = PipelineState.Stopped;
+                this.StartFramePrimitive.DecrementAndWait(this.ExternalThreadIndex);
+
+                this.JoinWorkers();
             }
             else
             {
@@ -94,6 +98,7 @@ namespace EntitySystemTest.Pipeline
             while (this.pipelineState != PipelineState.Stopped)
             {
                 this.StartFramePrimitive.DecrementAndWait(threadIndex);
+                if (this.pipelineState == PipelineState.Stopped) { return; }
 
                 for (var currentStage = 0; currentStage < this.PipelineStages.Count; currentStage++)
                 {
@@ -108,6 +113,14 @@ namespace EntitySystemTest.Pipeline
                 }
 
                 this.EndFramePrimitive.DecrementAndWait(threadIndex);
+            }
+        }
+
+        private void JoinWorkers()
+        {
+            for (var i = 0; i < this.Threads.Length; i++)
+            {
+                this.Threads[i].Join();
             }
         }
     }

@@ -9,7 +9,7 @@ namespace Tests
     public class ParallelPipelineTests
     {
         [Test]
-        public void Foo()
+        public void CompleteMultipleFrames()
         {
             var pipelineStages = new List<PipelineStage>();
 
